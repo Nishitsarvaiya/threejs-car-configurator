@@ -1,19 +1,27 @@
-import { DRACOLoader, GLTFLoader, OrbitControls } from "three/examples/jsm/Addons.js";
+import { DRACOLoader, GLTFLoader, OrbitControls, RGBELoader } from "three/examples/jsm/Addons.js";
 import "../style.css";
 
 import {
 	AmbientLight,
 	AxesHelper,
+	Color,
 	DirectionalLight,
 	DoubleSide,
+	EquirectangularReflectionMapping,
+	Fog,
+	MathUtils,
 	Mesh,
 	MeshBasicMaterial,
+	MeshPhysicalMaterial,
+	MeshStandardMaterial,
 	OrthographicCamera,
 	PerspectiveCamera,
 	PlaneGeometry,
 	SRGBColorSpace,
 	Scene,
 	ShaderMaterial,
+	Skeleton,
+	SkinnedMesh,
 	SpotLight,
 	SpotLightHelper,
 	TextureLoader,
@@ -24,6 +32,11 @@ import {
 export default class Sketch {
 	constructor(options) {
 		this.scene = new Scene();
+		// this.scene.background = new Color(0xffffff);
+		this.scene.environment = new RGBELoader().load("/textures/lonely_road_afternoon_puresky_1k.hdr");
+		this.scene.environment.mapping = EquirectangularReflectionMapping;
+		// this.scene.fog = new Fog(0xffffff, 10, 15);
+
 		this.container = options.dom;
 		this.width = this.container.offsetWidth;
 		this.height = this.container.offsetHeight;
@@ -47,8 +60,9 @@ export default class Sketch {
 		// 	-1000,
 		// 	1000
 		// );
-		this.camera.position.set(0, 3, 8);
+		this.camera.position.set(0, 3, 6);
 		this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+		// this.controls.maxPolarAngle = Math.PI / 2;
 		this.controls.enableDamping = true;
 
 		this.time = 0;
@@ -60,12 +74,17 @@ export default class Sketch {
 			vX: 0,
 			vY: 0,
 		};
+		this.wheels = [];
+		this.materials = [];
 
 		this.isPlaying = true;
+		this.addMaterials();
 		this.addObjects();
+		// this.addLights();
 		this.resize();
 		this.render();
 		this.setupResize();
+
 		// this.mouseEvents();
 	}
 
@@ -110,7 +129,7 @@ export default class Sketch {
 		this.camera.updateProjectionMatrix();
 	}
 
-	addObjects() {
+	addLights() {
 		const lights = [];
 		lights[0] = new AmbientLight(0xffffff, 10);
 		lights[1] = new SpotLight(0xffffff, 1000, 20, Math.PI / 8, 0, 1.2);
@@ -122,10 +141,22 @@ export default class Sketch {
 		this.scene.add(lights[0]);
 		this.scene.add(lights[1]);
 		this.scene.add(lights[2]);
+	}
 
-		const plane = new Mesh(new PlaneGeometry(20, 20, 1, 1), new MeshBasicMaterial({ color: "#343330" }));
-		plane.rotation.x = -Math.PI / 2;
-		this.scene.add(plane);
+	addMaterials() {
+		this.bodyMaterial = new MeshPhysicalMaterial({
+			color: 0xff0000,
+			metalness: 1.0,
+			roughness: 0.1,
+			clearcoat: 1.0,
+			clearcoatRoughness: 0.03,
+		});
+	}
+
+	addObjects() {
+		// const plane = new Mesh(new PlaneGeometry(20, 20, 1, 1), new MeshBasicMaterial({ color: "#343330" }));
+		// plane.rotation.x = -Math.PI / 2;
+		// this.scene.add(plane);
 
 		const dracoLoader = new DRACOLoader();
 		dracoLoader.setDecoderPath("jsm/libs/draco/gltf/");
@@ -133,18 +164,12 @@ export default class Sketch {
 		const loader = new GLTFLoader();
 		loader.setDRACOLoader(dracoLoader);
 
-		loader.load("/models/fordGT/fordGT.gltf", (gltf) => {
+		this.scene.add(new AxesHelper(10));
+
+		loader.load("/models/gt500/gt500.gltf", (gltf) => {
 			const car = gltf.scene.children[0];
-			console.log(car);
 			car.position.set(0, 0, -1.2);
-			const wheelLeft = car.children[1];
-			const brakeLeft = car.children[5];
-			const wheelRight = car.children[2];
-			const brakeRight = car.children[6];
-			wheelLeft.rotation.z = Math.PI / 8;
-			brakeLeft.rotation.z = Math.PI / 8;
-			wheelRight.rotation.z = Math.PI / 8;
-			brakeRight.rotation.z = Math.PI / 8;
+			console.log(car);
 			this.scene.add(car);
 		});
 	}
