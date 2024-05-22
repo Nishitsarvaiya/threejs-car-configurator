@@ -28,6 +28,7 @@ import {
 	Vector4,
 	WebGLRenderer,
 } from "three";
+import GUI from "three/examples/jsm/libs/lil-gui.module.min.js";
 
 export default class Sketch {
 	constructor(options) {
@@ -50,7 +51,7 @@ export default class Sketch {
 		this.container.appendChild(this.renderer.domElement);
 
 		const aspect = this.width / this.height;
-		this.camera = new PerspectiveCamera(50, aspect, 0.1, 100);
+		this.camera = new PerspectiveCamera(40, aspect, 0.1, 100);
 		// var frustumSize = this.height;
 		// this.camera = new OrthographicCamera(
 		// 	(frustumSize * aspect) / -2,
@@ -60,10 +61,13 @@ export default class Sketch {
 		// 	-1000,
 		// 	1000
 		// );
-		this.camera.position.set(0, 3, 6);
+		this.camera.position.set(4, 3, 5);
+
 		this.controls = new OrbitControls(this.camera, this.renderer.domElement);
 		// this.controls.maxPolarAngle = Math.PI / 2;
 		this.controls.enableDamping = true;
+
+		this.gui = new GUI();
 
 		this.time = 0;
 		this.mouse = {
@@ -74,12 +78,18 @@ export default class Sketch {
 			vX: 0,
 			vY: 0,
 		};
+		this.carProps = {
+			Body: "#1d1d1d",
+			Wheels: "#EAEBED",
+			Wing: "#EAEBED",
+		};
 		this.wheels = [];
 		this.materials = [];
 
 		this.isPlaying = true;
 		this.addMaterials();
 		this.addObjects();
+		this.addGUI();
 		// this.addLights();
 		this.resize();
 		this.render();
@@ -145,11 +155,28 @@ export default class Sketch {
 
 	addMaterials() {
 		this.bodyMaterial = new MeshPhysicalMaterial({
-			color: 0xff0000,
+			color: this.carProps.Body,
 			metalness: 1.0,
 			roughness: 0.1,
 			clearcoat: 1.0,
-			clearcoatRoughness: 0.03,
+			clearcoatRoughness: 0.1,
+		});
+
+		this.wheelMaterial = new MeshPhysicalMaterial({
+			color: this.carProps.Wheels,
+			metalness: 1.0,
+			roughness: 0,
+			transmission: 1,
+			clearcoat: 1.0,
+			clearcoatRoughness: 0.1,
+		});
+
+		this.wingMaterial = new MeshPhysicalMaterial({
+			color: this.carProps.Wing,
+			metalness: 1.0,
+			roughness: 0.1,
+			clearcoat: 1.0,
+			clearcoatRoughness: 0.1,
 		});
 	}
 
@@ -164,14 +191,39 @@ export default class Sketch {
 		const loader = new GLTFLoader();
 		loader.setDRACOLoader(dracoLoader);
 
-		this.scene.add(new AxesHelper(10));
+		// this.scene.add(new AxesHelper(10));
 
 		loader.load("/models/gt500/gt500.gltf", (gltf) => {
+			gltf.scene.traverse((obj) => {
+				if (obj.type === "Mesh") {
+					obj.castShadow = true;
+					obj.receiveShadow = true;
+				}
+			});
 			const car = gltf.scene.children[0];
 			car.position.set(0, 0, -1.2);
-			console.log(car);
+			this.carBody = car.getObjectByName("GT500-body");
+			this.carBody.material = this.bodyMaterial;
+
+			this.wheels.push(
+				car.getObjectByName("GT500-wheelFtL"),
+				car.getObjectByName("GT500-wheelFtR"),
+				car.getObjectByName("GT500-wheelBkL"),
+				car.getObjectByName("GT500-wheelBkR")
+			);
+			this.wheels.forEach((wheel) => (wheel.material = this.wheelMaterial));
+
+			this.wing = car.getObjectByName("GT500Wing_glossblack_0");
+			this.wing.material = this.wingMaterial;
+
 			this.scene.add(car);
 		});
+	}
+
+	addGUI() {
+		this.gui.addColor(this.carProps, "Body").onChange((newColor) => this.bodyMaterial.color.set(newColor));
+		this.gui.addColor(this.carProps, "Wheels").onChange((newColor) => this.wheelMaterial.color.set(newColor));
+		this.gui.addColor(this.carProps, "Wing").onChange((newColor) => this.wingMaterial.color.set(newColor));
 	}
 
 	render() {
