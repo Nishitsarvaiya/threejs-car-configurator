@@ -34,8 +34,17 @@ export default class Sketch {
 	constructor(options) {
 		this.scene = new Scene();
 		// this.scene.background = new Color(0xffffff);
-		this.scene.environment = new RGBELoader().load("/textures/lonely_road_afternoon_puresky_1k.hdr");
-		this.scene.environment.mapping = EquirectangularReflectionMapping;
+		// this.scene.environment = new RGBELoader().load("/textures/lonely_road_afternoon_puresky_1k.hdr");
+		// this.scene.environment = new RGBELoader().load("/textures/meadow_2_1k.hdr");
+		// this.scene.environment = new RGBELoader().load("/textures/thatch_chapel_2k.hdr");
+		// this.scene.environment = new RGBELoader().load("/textures/venice_sunset_2k.hdr");
+		new RGBELoader().load("/textures/poly_haven_studio_1k.hdr", (data) => {
+			this.scene.background = data;
+			this.scene.backgroundBlurriness = 1;
+			this.scene.backgroundIntensity = 0.5;
+			this.scene.environment = data;
+			this.scene.environment.mapping = EquirectangularReflectionMapping;
+		});
 		// this.scene.fog = new Fog(0xffffff, 10, 15);
 
 		this.container = options.dom;
@@ -44,7 +53,7 @@ export default class Sketch {
 		this.renderer = new WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
 		this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 		this.renderer.setSize(this.width, this.height);
-		this.renderer.setClearColor(0xffffff, 1);
+		// this.renderer.setClearColor(0xffffff, 1);
 		this.renderer.physicallyCorrectLights = true;
 		this.renderer.outputColorSpace = SRGBColorSpace;
 
@@ -181,9 +190,9 @@ export default class Sketch {
 	}
 
 	addObjects() {
-		// const plane = new Mesh(new PlaneGeometry(20, 20, 1, 1), new MeshBasicMaterial({ color: "#343330" }));
-		// plane.rotation.x = -Math.PI / 2;
-		// this.scene.add(plane);
+		const plane = new Mesh(new PlaneGeometry(20, 20, 1, 1), new MeshBasicMaterial({ color: "#343330" }));
+		plane.rotation.x = -Math.PI / 2;
+		this.scene.add(plane);
 
 		const dracoLoader = new DRACOLoader();
 		dracoLoader.setDecoderPath("jsm/libs/draco/gltf/");
@@ -193,7 +202,7 @@ export default class Sketch {
 
 		// this.scene.add(new AxesHelper(10));
 
-		loader.load("/models/gt500/gt500.gltf", (gltf) => {
+		loader.load("/models/spyder/spyder.gltf", (gltf) => {
 			gltf.scene.traverse((obj) => {
 				if (obj.type === "Mesh") {
 					obj.castShadow = true;
@@ -202,19 +211,19 @@ export default class Sketch {
 			});
 			const car = gltf.scene.children[0];
 			car.position.set(0, 0, -1.2);
-			this.carBody = car.getObjectByName("GT500-body");
-			this.carBody.material = this.bodyMaterial;
+			// this.carBody = car.getObjectByName("GT500-body");
+			// this.carBody.material = this.bodyMaterial;
 
-			this.wheels.push(
-				car.getObjectByName("GT500-wheelFtL"),
-				car.getObjectByName("GT500-wheelFtR"),
-				car.getObjectByName("GT500-wheelBkL"),
-				car.getObjectByName("GT500-wheelBkR")
-			);
-			this.wheels.forEach((wheel) => (wheel.material = this.wheelMaterial));
+			// this.wheels.push(
+			// 	car.getObjectByName("GT500-wheelFtL"),
+			// 	car.getObjectByName("GT500-wheelFtR"),
+			// 	car.getObjectByName("GT500-wheelBkL"),
+			// 	car.getObjectByName("GT500-wheelBkR")
+			// );
+			// this.wheels.forEach((wheel) => (wheel.material = this.wheelMaterial));
 
-			this.wing = car.getObjectByName("GT500Wing_glossblack_0");
-			this.wing.material = this.wingMaterial;
+			// this.wing = car.getObjectByName("GT500Wing_glossblack_0");
+			// this.wing.material = this.wingMaterial;
 
 			this.scene.add(car);
 		});
