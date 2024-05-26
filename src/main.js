@@ -1,5 +1,5 @@
-import { DRACOLoader, GLTFLoader, OrbitControls, RGBELoader } from "three/examples/jsm/Addons.js";
-import "../style.css";
+import { DRACOLoader, GLTFLoader, OrbitControls, RGBELoader } from 'three/examples/jsm/Addons.js';
+import '../style.css';
 
 import {
 	AmbientLight,
@@ -17,6 +17,7 @@ import {
 	OrthographicCamera,
 	PerspectiveCamera,
 	PlaneGeometry,
+	RepeatWrapping,
 	SRGBColorSpace,
 	Scene,
 	ShaderMaterial,
@@ -27,8 +28,9 @@ import {
 	TextureLoader,
 	Vector4,
 	WebGLRenderer,
-} from "three";
-import GUI from "three/examples/jsm/libs/lil-gui.module.min.js";
+} from 'three';
+import GUI from 'three/examples/jsm/libs/lil-gui.module.min.js';
+import { LoadingManager } from 'three';
 
 export default class Sketch {
 	constructor(options) {
@@ -38,10 +40,10 @@ export default class Sketch {
 		// this.scene.environment = new RGBELoader().load("/textures/meadow_2_1k.hdr");
 		// this.scene.environment = new RGBELoader().load("/textures/thatch_chapel_2k.hdr");
 		// this.scene.environment = new RGBELoader().load("/textures/venice_sunset_2k.hdr");
-		new RGBELoader().load("/textures/poly_haven_studio_1k.hdr", (data) => {
+		this.hdri = new RGBELoader().load('/textures/poly_haven_studio_4k.hdr', (data) => {
 			this.scene.background = data;
-			this.scene.backgroundBlurriness = 1;
-			this.scene.backgroundIntensity = 0.5;
+			this.scene.backgroundBlurriness = 0;
+			this.scene.backgroundIntensity = 1;
 			this.scene.environment = data;
 			this.scene.environment.mapping = EquirectangularReflectionMapping;
 		});
@@ -50,7 +52,7 @@ export default class Sketch {
 		this.container = options.dom;
 		this.width = this.container.offsetWidth;
 		this.height = this.container.offsetHeight;
-		this.renderer = new WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+		this.renderer = new WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 		this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 		this.renderer.setSize(this.width, this.height);
 		// this.renderer.setClearColor(0xffffff, 1);
@@ -73,8 +75,10 @@ export default class Sketch {
 		this.camera.position.set(4, 3, 5);
 
 		this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-		// this.controls.maxPolarAngle = Math.PI / 2;
+		this.controls.maxPolarAngle = MathUtils.degToRad(85);
 		this.controls.enableDamping = true;
+
+		this.loadingManager = new LoadingManager();
 
 		this.gui = new GUI();
 
@@ -88,14 +92,15 @@ export default class Sketch {
 			vY: 0,
 		};
 		this.carProps = {
-			Body: "#1d1d1d",
-			Wheels: "#EAEBED",
-			Wing: "#EAEBED",
+			Body: '#1d1d1d',
+			Wheels: '#EAEBED',
+			Wing: '#EAEBED',
 		};
 		this.wheels = [];
 		this.materials = [];
 
 		this.isPlaying = true;
+		this.addFloor();
 		this.addMaterials();
 		this.addObjects();
 		this.addGUI();
@@ -108,7 +113,7 @@ export default class Sketch {
 	}
 
 	mouseEvents() {
-		window.addEventListener("mousemove", (e) => {
+		window.addEventListener('mousemove', (e) => {
 			this.mouse.prevX = this.mouse.x;
 			this.mouse.prevY = this.mouse.y;
 			this.mouse.x = e.clientX - this.width / 2;
@@ -119,7 +124,7 @@ export default class Sketch {
 	}
 
 	setupResize() {
-		window.addEventListener("resize", this.resize.bind(this));
+		window.addEventListener('resize', this.resize.bind(this));
 	}
 
 	resize() {
@@ -189,22 +194,68 @@ export default class Sketch {
 		});
 	}
 
-	addObjects() {
-		const plane = new Mesh(new PlaneGeometry(20, 20, 1, 1), new MeshBasicMaterial({ color: "#343330" }));
+	addFloor() {
+		const geometry = new PlaneGeometry(100, 100, 1, 1);
+		const material = new MeshPhysicalMaterial({ color: '#ffffff', side: DoubleSide });
+		const plane = new Mesh(geometry, material);
+		plane.receiveShadow = true;
 		plane.rotation.x = -Math.PI / 2;
-		this.scene.add(plane);
 
+		const textureLoader = new TextureLoader(this.loadingManager);
+
+		const textures = [];
+
+		textures.push(
+			textureLoader.load('/textures/WoodFlooringAshSuperWhite001/WoodFlooringAshSuperWhite001_COL_1K.jpg'),
+			textureLoader.load('/textures/WoodFlooringAshSuperWhite001/WoodFlooringAshSuperWhite001_AO_1K.jpg'),
+			textureLoader.load('/textures/WoodFlooringAshSuperWhite001/WoodFlooringAshSuperWhite001_BUMP_1K.jpg'),
+			textureLoader.load('/textures/WoodFlooringAshSuperWhite001/WoodFlooringAshSuperWhite001_DISP_1K.jpg'),
+			textureLoader.load('/textures/WoodFlooringAshSuperWhite001/WoodFlooringAshSuperWhite001_GLOSS_1K.jpg'),
+			textureLoader.load('/textures/WoodFlooringAshSuperWhite001/WoodFlooringAshSuperWhite001_NRM_1K.jpg'),
+			textureLoader.load('/textures/WoodFlooringAshSuperWhite001/WoodFlooringAshSuperWhite001_REFL_1K.jpg')
+		);
+
+		this.loadingManager.onLoad = () => {
+			textures.forEach((tex) => {
+				tex.wrapT = RepeatWrapping;
+				tex.wrapS = RepeatWrapping;
+				tex.repeat.set(15, 15);
+			});
+			material.map = textures[0];
+			material.aoMap = textures[1];
+			material.bumpMap = textures[2];
+			material.displacementMap = textures[3];
+			material.reflectivity = 0;
+			material.normalMap = textures[5];
+			material.clearcoat = 1;
+			material.roughnessMap = textures[4];
+			material.clearcoatMap = textures[6];
+			material.needsUpdate = true;
+			plane.position.set(0, -0.685, 0);
+			this.scene.add(plane);
+		};
+	}
+
+	addObjects() {
 		const dracoLoader = new DRACOLoader();
-		dracoLoader.setDecoderPath("jsm/libs/draco/gltf/");
+		dracoLoader.setDecoderPath('jsm/libs/draco/gltf/');
 
 		const loader = new GLTFLoader();
 		loader.setDRACOLoader(dracoLoader);
 
+		// new TextureLoader().load('/textures/floor/TilesCeramicSquareLarge001_COL_1K.jpg', (texture) => {
+		// 	console.log(texture);
+		// 	texture.wrapS = RepeatWrapping;
+		// 	texture.wrapT = RepeatWrapping;
+		// 	texture.repeat.set(20, 20);
+		// 	plane.material.map = texture;
+		// 	this.scene.add(plane);
+		// });
 		// this.scene.add(new AxesHelper(10));
 
-		loader.load("/models/spyder/spyder.gltf", (gltf) => {
+		loader.load('/models/spyder/spyder.gltf', (gltf) => {
 			gltf.scene.traverse((obj) => {
-				if (obj.type === "Mesh") {
+				if (obj.type === 'Mesh') {
 					obj.castShadow = true;
 					obj.receiveShadow = true;
 				}
@@ -230,9 +281,9 @@ export default class Sketch {
 	}
 
 	addGUI() {
-		this.gui.addColor(this.carProps, "Body").onChange((newColor) => this.bodyMaterial.color.set(newColor));
-		this.gui.addColor(this.carProps, "Wheels").onChange((newColor) => this.wheelMaterial.color.set(newColor));
-		this.gui.addColor(this.carProps, "Wing").onChange((newColor) => this.wingMaterial.color.set(newColor));
+		this.gui.addColor(this.carProps, 'Body').onChange((newColor) => this.bodyMaterial.color.set(newColor));
+		this.gui.addColor(this.carProps, 'Wheels').onChange((newColor) => this.wheelMaterial.color.set(newColor));
+		this.gui.addColor(this.carProps, 'Wing').onChange((newColor) => this.wingMaterial.color.set(newColor));
 	}
 
 	render() {
@@ -246,5 +297,5 @@ export default class Sketch {
 }
 
 new Sketch({
-	dom: document.getElementById("app"),
+	dom: document.getElementById('app'),
 });
