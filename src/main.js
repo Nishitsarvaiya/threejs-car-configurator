@@ -1,9 +1,12 @@
-import { DRACOLoader, GLTFLoader, OrbitControls, RGBELoader } from 'three/examples/jsm/Addons.js';
-import '../style.css';
+import { DRACOLoader, GLTFLoader, OrbitControls, RGBELoader, RectAreaLightHelper } from "three/examples/jsm/Addons.js";
+import { RectAreaLightUniformsLib } from "three/examples/jsm/Addons.js";
+import "../style.css";
 
 import {
+	ACESFilmicToneMapping,
 	AmbientLight,
 	AxesHelper,
+	CineonToneMapping,
 	Color,
 	DirectionalLight,
 	DoubleSide,
@@ -14,9 +17,11 @@ import {
 	MeshBasicMaterial,
 	MeshPhysicalMaterial,
 	MeshStandardMaterial,
+	NoToneMapping,
 	OrthographicCamera,
 	PerspectiveCamera,
 	PlaneGeometry,
+	RectAreaLight,
 	RepeatWrapping,
 	SRGBColorSpace,
 	Scene,
@@ -28,9 +33,9 @@ import {
 	TextureLoader,
 	Vector4,
 	WebGLRenderer,
-} from 'three';
-import GUI from 'three/examples/jsm/libs/lil-gui.module.min.js';
-import { LoadingManager } from 'three';
+} from "three";
+import GUI from "three/examples/jsm/libs/lil-gui.module.min.js";
+import { LoadingManager } from "three";
 
 export default class Sketch {
 	constructor(options) {
@@ -40,11 +45,9 @@ export default class Sketch {
 		// this.scene.environment = new RGBELoader().load("/textures/meadow_2_1k.hdr");
 		// this.scene.environment = new RGBELoader().load("/textures/thatch_chapel_2k.hdr");
 		// this.scene.environment = new RGBELoader().load("/textures/venice_sunset_2k.hdr");
-		this.hdri = new RGBELoader().load('/textures/poly_haven_studio_4k.hdr', (data) => {
-			this.scene.background = data;
-			this.scene.backgroundBlurriness = 0;
-			this.scene.backgroundIntensity = 1;
+		this.hdri = new RGBELoader().load("/textures/poly_haven_studio_4k.hdr", (data) => {
 			this.scene.environment = data;
+			this.scene.environmentIntensity = 0.1;
 			this.scene.environment.mapping = EquirectangularReflectionMapping;
 		});
 		// this.scene.fog = new Fog(0xffffff, 10, 15);
@@ -52,17 +55,18 @@ export default class Sketch {
 		this.container = options.dom;
 		this.width = this.container.offsetWidth;
 		this.height = this.container.offsetHeight;
-		this.renderer = new WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+		this.renderer = new WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+		this.renderer.outputColorSpace = SRGBColorSpace;
 		this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 		this.renderer.setSize(this.width, this.height);
-		// this.renderer.setClearColor(0xffffff, 1);
+		this.renderer.setClearColor(0xffffff, 1);
 		this.renderer.physicallyCorrectLights = true;
 		this.renderer.outputColorSpace = SRGBColorSpace;
 
 		this.container.appendChild(this.renderer.domElement);
 
 		const aspect = this.width / this.height;
-		this.camera = new PerspectiveCamera(40, aspect, 0.1, 100);
+		this.camera = new PerspectiveCamera(40, aspect, 0.01, 1000);
 		// var frustumSize = this.height;
 		// this.camera = new OrthographicCamera(
 		// 	(frustumSize * aspect) / -2,
@@ -77,8 +81,15 @@ export default class Sketch {
 		this.controls = new OrbitControls(this.camera, this.renderer.domElement);
 		this.controls.maxPolarAngle = MathUtils.degToRad(85);
 		this.controls.enableDamping = true;
+		this.controls.dampingFactor = 0.1;
+		this.controls.minDistance = 2.5;
+		this.controls.maxDistance = 10;
 
-		this.loadingManager = new LoadingManager();
+		const dracoLoader = new DRACOLoader();
+		dracoLoader.setDecoderPath("jsm/libs/draco/gltf/");
+
+		this.gltfLoader = new GLTFLoader();
+		this.gltfLoader.setDRACOLoader(dracoLoader);
 
 		this.gui = new GUI();
 
@@ -92,19 +103,28 @@ export default class Sketch {
 			vY: 0,
 		};
 		this.carProps = {
-			Body: '#1d1d1d',
-			Wheels: '#EAEBED',
-			Wing: '#EAEBED',
+			Body: "#262626",
+			Wheels: "#ffffff",
+			Wing: "#262626",
+			Diffusers: "#262626",
+			Brakes: "#F2545B",
+			Glass: "#ffffff",
 		};
 		this.wheels = [];
 		this.materials = [];
+		this.doors = [];
+		this.bumpers = [];
+		this.diffusers = [];
+		this.brakes = [];
+		this.glasses = [];
+		this.wing = null;
 
 		this.isPlaying = true;
-		this.addFloor();
 		this.addMaterials();
-		this.addObjects();
+		this.addStudio();
+		// this.addObjects();
 		this.addGUI();
-		// this.addLights();
+		this.addLights();
 		this.resize();
 		this.render();
 		this.setupResize();
@@ -113,7 +133,7 @@ export default class Sketch {
 	}
 
 	mouseEvents() {
-		window.addEventListener('mousemove', (e) => {
+		window.addEventListener("mousemove", (e) => {
 			this.mouse.prevX = this.mouse.x;
 			this.mouse.prevY = this.mouse.y;
 			this.mouse.x = e.clientX - this.width / 2;
@@ -124,7 +144,7 @@ export default class Sketch {
 	}
 
 	setupResize() {
-		window.addEventListener('resize', this.resize.bind(this));
+		window.addEventListener("resize", this.resize.bind(this));
 	}
 
 	resize() {
@@ -154,136 +174,176 @@ export default class Sketch {
 	}
 
 	addLights() {
-		const lights = [];
-		lights[0] = new AmbientLight(0xffffff, 10);
-		lights[1] = new SpotLight(0xffffff, 1000, 20, Math.PI / 8, 0, 1.2);
-		lights[2] = new SpotLight(0xffffff, 1000, 20, Math.PI / 8, 0, 1.2);
+		RectAreaLightUniformsLib.init();
+		let light = new RectAreaLight("#ffffff", 1.5, 3, 6);
+		light.rotation.set(Math.PI / 2, Math.PI, 0);
+		light.position.set(0, 3, 0);
+		this.scene.add(light);
 
-		lights[1].position.set(0, 8, 10);
-		lights[2].position.set(0, 8, -10);
+		// light = new RectAreaLight("#ffffff", 0, 1, 2);
+		// light.power = 20;
+		// light.rotation.set(Math.PI / 2, Math.PI - 1, 0);
+		// light.position.set(10, 8, 0);
+		// this.scene.add(light);
 
-		this.scene.add(lights[0]);
-		this.scene.add(lights[1]);
-		this.scene.add(lights[2]);
+		// light = new RectAreaLight("#ffffff", 0, 1, 2);
+		// light.power = 20;
+		// light.rotation.set(Math.PI / 2, Math.PI + 1, 0);
+		// light.position.set(-10, 8, 0);
+		// this.scene.add(light);
+
+		this.scene.add(new AmbientLight("#ffffff", 1.5));
+
+		// this.scene.add(new RectAreaLightHelper(light));
 	}
 
 	addMaterials() {
 		this.bodyMaterial = new MeshPhysicalMaterial({
 			color: this.carProps.Body,
-			metalness: 1.0,
-			roughness: 0.1,
-			clearcoat: 1.0,
+			metalness: 0.8,
+			roughness: 0.3,
+			clearcoat: 0.5,
 			clearcoatRoughness: 0.1,
 		});
 
 		this.wheelMaterial = new MeshPhysicalMaterial({
 			color: this.carProps.Wheels,
-			metalness: 1.0,
-			roughness: 0,
-			transmission: 1,
-			clearcoat: 1.0,
+			metalness: 0.8,
+			roughness: 0.3,
+			clearcoat: 0.5,
 			clearcoatRoughness: 0.1,
 		});
 
-		this.wingMaterial = new MeshPhysicalMaterial({
+		this.wingMaterial = new MeshStandardMaterial({
 			color: this.carProps.Wing,
-			metalness: 1.0,
+			metalness: 0.5,
 			roughness: 0.1,
-			clearcoat: 1.0,
-			clearcoatRoughness: 0.1,
+			clearcoat: 0.2,
+			clearcoatRoughness: 0,
 		});
-	}
 
-	addFloor() {
-		const geometry = new PlaneGeometry(100, 100, 1, 1);
-		const material = new MeshPhysicalMaterial({ color: '#ffffff', side: DoubleSide });
-		const plane = new Mesh(geometry, material);
-		plane.receiveShadow = true;
-		plane.rotation.x = -Math.PI / 2;
+		this.diffuserMaterial = new MeshStandardMaterial({
+			color: this.carProps.Diffusers,
+			metalness: 0.5,
+			roughness: 0.1,
+			clearcoat: 0.2,
+			clearcoatRoughness: 0,
+		});
 
-		const textureLoader = new TextureLoader(this.loadingManager);
+		this.brakeMaterial = new MeshStandardMaterial({
+			color: this.carProps.Brakes,
+			metalness: 0.5,
+			roughness: 0.1,
+			clearcoat: 0.2,
+			clearcoatRoughness: 0,
+		});
 
-		const textures = [];
+		this.glassMaterial = new MeshPhysicalMaterial({
+			color: this.carProps.Glass,
+			metalness: 0,
+			roughness: 0,
+			reflectivity: 0.2,
+			transmission: 1,
+			clearcoat: 1,
+			transparent: true,
+		});
 
-		textures.push(
-			textureLoader.load('/textures/WoodFlooringAshSuperWhite001/WoodFlooringAshSuperWhite001_COL_1K.jpg'),
-			textureLoader.load('/textures/WoodFlooringAshSuperWhite001/WoodFlooringAshSuperWhite001_AO_1K.jpg'),
-			textureLoader.load('/textures/WoodFlooringAshSuperWhite001/WoodFlooringAshSuperWhite001_BUMP_1K.jpg'),
-			textureLoader.load('/textures/WoodFlooringAshSuperWhite001/WoodFlooringAshSuperWhite001_DISP_1K.jpg'),
-			textureLoader.load('/textures/WoodFlooringAshSuperWhite001/WoodFlooringAshSuperWhite001_GLOSS_1K.jpg'),
-			textureLoader.load('/textures/WoodFlooringAshSuperWhite001/WoodFlooringAshSuperWhite001_NRM_1K.jpg'),
-			textureLoader.load('/textures/WoodFlooringAshSuperWhite001/WoodFlooringAshSuperWhite001_REFL_1K.jpg')
+		this.materials.push(
+			this.bodyMaterial,
+			this.wheelMaterial,
+			this.wingMaterial,
+			this.diffuserMaterial,
+			this.brakeMaterial,
+			this.glassMaterial
 		);
-
-		this.loadingManager.onLoad = () => {
-			textures.forEach((tex) => {
-				tex.wrapT = RepeatWrapping;
-				tex.wrapS = RepeatWrapping;
-				tex.repeat.set(15, 15);
-			});
-			material.map = textures[0];
-			material.aoMap = textures[1];
-			material.bumpMap = textures[2];
-			material.displacementMap = textures[3];
-			material.reflectivity = 0;
-			material.normalMap = textures[5];
-			material.clearcoat = 1;
-			material.roughnessMap = textures[4];
-			material.clearcoatMap = textures[6];
-			material.needsUpdate = true;
-			plane.position.set(0, -0.685, 0);
-			this.scene.add(plane);
-		};
 	}
 
-	addObjects() {
-		const dracoLoader = new DRACOLoader();
-		dracoLoader.setDecoderPath('jsm/libs/draco/gltf/');
-
-		const loader = new GLTFLoader();
-		loader.setDRACOLoader(dracoLoader);
-
-		// new TextureLoader().load('/textures/floor/TilesCeramicSquareLarge001_COL_1K.jpg', (texture) => {
-		// 	console.log(texture);
-		// 	texture.wrapS = RepeatWrapping;
-		// 	texture.wrapT = RepeatWrapping;
-		// 	texture.repeat.set(20, 20);
-		// 	plane.material.map = texture;
-		// 	this.scene.add(plane);
-		// });
-		// this.scene.add(new AxesHelper(10));
-
-		loader.load('/models/spyder/spyder.gltf', (gltf) => {
+	addStudio() {
+		this.gltfLoader.load("/models/studio/spyder_studio.gltf", (gltf) => {
 			gltf.scene.traverse((obj) => {
-				if (obj.type === 'Mesh') {
+				if (obj.type === "Mesh") {
 					obj.castShadow = true;
 					obj.receiveShadow = true;
 				}
 			});
-			const car = gltf.scene.children[0];
-			car.position.set(0, 0, -1.2);
-			// this.carBody = car.getObjectByName("GT500-body");
-			// this.carBody.material = this.bodyMaterial;
+			const studio = gltf.scene;
+			console.log(studio);
+			const carBody = studio.getObjectByName("Body");
+			this.doors.push(studio.getObjectByName("Door_Left"), studio.getObjectByName("Door_Right"));
+			carBody.material = this.bodyMaterial;
+			this.doors[0].material = this.bodyMaterial;
+			this.doors[1].material = this.bodyMaterial;
+			this.bumpers.push(studio.getObjectByName("Bumper"), studio.getObjectByName("Rear_Bumper"));
+			this.bumpers[0].material = this.bodyMaterial;
+			this.bumpers[1].material = this.bodyMaterial;
 
-			// this.wheels.push(
-			// 	car.getObjectByName("GT500-wheelFtL"),
-			// 	car.getObjectByName("GT500-wheelFtR"),
-			// 	car.getObjectByName("GT500-wheelBkL"),
-			// 	car.getObjectByName("GT500-wheelBkR")
-			// );
-			// this.wheels.forEach((wheel) => (wheel.material = this.wheelMaterial));
+			const wing = studio.getObjectByName("Spoiler");
+			wing.material = this.wingMaterial;
 
-			// this.wing = car.getObjectByName("GT500Wing_glossblack_0");
-			// this.wing.material = this.wingMaterial;
+			this.diffusers.push(studio.getObjectByName("Diffuser"), studio.getObjectByName("Front_Diffuser"));
+			this.diffusers[0].material = this.diffuserMaterial;
+			this.diffusers[1].material = this.diffuserMaterial;
 
-			this.scene.add(car);
+			this.wheels.push(
+				studio.getObjectByName("Spyder-wheelFtL"),
+				studio.getObjectByName("Spyder-wheelFtR"),
+				studio.getObjectByName("Spyder-wheelBkL"),
+				studio.getObjectByName("Spyder-wheelBkR")
+			);
+			this.wheels[0].material = this.wheelMaterial;
+			this.wheels[1].material = this.wheelMaterial;
+			this.wheels[2].material = this.wheelMaterial;
+			this.wheels[3].material = this.wheelMaterial;
+
+			this.brakes.push(
+				studio.getObjectByName("Spyder-wheelbrakeFtL"),
+				studio.getObjectByName("Spyder-wheelbrakeFtR"),
+				studio.getObjectByName("Spyder-wheelbrakeBkL"),
+				studio.getObjectByName("Spyder-wheelbrakeBkR")
+			);
+			this.brakes[0].material = this.brakeMaterial;
+			this.brakes[1].material = this.brakeMaterial;
+			this.brakes[2].material = this.brakeMaterial;
+			this.brakes[3].material = this.brakeMaterial;
+
+			this.glasses.push(
+				studio.getObjectByName("Glass_Left"),
+				studio.getObjectByName("Glass_Right"),
+				studio.getObjectByName("Windshield")
+			);
+			this.glasses[0].material = this.glassMaterial;
+			this.glasses[1].material = this.glassMaterial;
+			this.glasses[2].material = this.glassMaterial;
+
+			this.scene.add(studio);
 		});
 	}
 
 	addGUI() {
-		this.gui.addColor(this.carProps, 'Body').onChange((newColor) => this.bodyMaterial.color.set(newColor));
-		this.gui.addColor(this.carProps, 'Wheels').onChange((newColor) => this.wheelMaterial.color.set(newColor));
-		this.gui.addColor(this.carProps, 'Wing').onChange((newColor) => this.wingMaterial.color.set(newColor));
+		this.gui.addColor(this.carProps, "Body").onChange((newColor) => {
+			this.bodyMaterial.color.set(newColor);
+			this.bodyMaterial.needsUpdate = true;
+		});
+		this.gui.addColor(this.carProps, "Diffusers").onChange((newColor) => {
+			this.diffuserMaterial.color.set(newColor);
+			this.diffuserMaterial.needsUpdate = true;
+		});
+		this.gui.addColor(this.carProps, "Wheels").onChange((newColor) => {
+			this.wheelMaterial.color.set(newColor);
+			this.wheelMaterial.needsUpdate = true;
+		});
+		this.gui.addColor(this.carProps, "Wing").onChange((newColor) => {
+			this.wingMaterial.color.set(newColor);
+			this.wingMaterial.needsUpdate = true;
+		});
+		this.gui.addColor(this.carProps, "Brakes").onChange((newColor) => {
+			this.brakeMaterial.color.set(newColor);
+			this.brakeMaterial.needsUpdate = true;
+		});
+		this.gui.addColor(this.carProps, "Glass").onChange((newColor) => {
+			this.glassMaterial.color.set(newColor);
+			this.glassMaterial.needsUpdate = true;
+		});
 	}
 
 	render() {
@@ -297,5 +357,5 @@ export default class Sketch {
 }
 
 new Sketch({
-	dom: document.getElementById('app'),
+	dom: document.getElementById("app"),
 });
