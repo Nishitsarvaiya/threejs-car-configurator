@@ -1,5 +1,17 @@
-import { DRACOLoader, GLTFLoader, OrbitControls, RGBELoader, RectAreaLightHelper } from "three/examples/jsm/Addons.js";
-import { RectAreaLightUniformsLib } from "three/examples/jsm/Addons.js";
+import {
+	DRACOLoader,
+	EffectComposer,
+	GLTFLoader,
+	OrbitControls,
+	OutputPass,
+	RGBELoader,
+	RectAreaLightHelper,
+	RenderPass,
+	RectAreaLightUniformsLib,
+	UnrealBloomPass,
+	LUT3dlLoader,
+	LUTPass,
+} from "three/examples/jsm/Addons.js";
 import "../style.css";
 
 import {
@@ -31,11 +43,13 @@ import {
 	SpotLight,
 	SpotLightHelper,
 	TextureLoader,
+	Vector2,
 	Vector4,
 	WebGLRenderer,
 } from "three";
 import GUI from "three/examples/jsm/libs/lil-gui.module.min.js";
 import { LoadingManager } from "three";
+import gsap from "gsap";
 
 export default class Sketch {
 	constructor(options) {
@@ -56,12 +70,12 @@ export default class Sketch {
 		this.width = this.container.offsetWidth;
 		this.height = this.container.offsetHeight;
 		this.renderer = new WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-		this.renderer.outputColorSpace = SRGBColorSpace;
 		this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 		this.renderer.setSize(this.width, this.height);
 		this.renderer.setClearColor(0xffffff, 1);
 		this.renderer.physicallyCorrectLights = true;
 		this.renderer.outputColorSpace = SRGBColorSpace;
+		this.renderer.toneMapping = ACESFilmicToneMapping;
 
 		this.container.appendChild(this.renderer.domElement);
 
@@ -82,8 +96,7 @@ export default class Sketch {
 		this.controls.maxPolarAngle = MathUtils.degToRad(85);
 		this.controls.enableDamping = true;
 		this.controls.dampingFactor = 0.1;
-		this.controls.minDistance = 2.5;
-		this.controls.maxDistance = 10;
+		this.controls.enableZoom = false;
 
 		const dracoLoader = new DRACOLoader();
 		dracoLoader.setDecoderPath("jsm/libs/draco/gltf/");
@@ -107,7 +120,7 @@ export default class Sketch {
 			Wheels: "#ffffff",
 			Wing: "#262626",
 			Diffusers: "#262626",
-			Brakes: "#F2545B",
+			Brakes: "#A1FF00",
 			Glass: "#ffffff",
 		};
 		this.wheels = [];
@@ -117,19 +130,20 @@ export default class Sketch {
 		this.diffusers = [];
 		this.brakes = [];
 		this.glasses = [];
+		this.mirrors = [];
 		this.wing = null;
 
 		this.isPlaying = true;
 		this.addMaterials();
 		this.addStudio();
-		// this.addObjects();
-		this.addGUI();
 		this.addLights();
+		this.initComposer();
 		this.resize();
 		this.render();
 		this.setupResize();
+		this.addGUI();
 
-		// this.mouseEvents();
+		this.mouseEvents();
 	}
 
 	mouseEvents() {
@@ -141,6 +155,11 @@ export default class Sketch {
 			this.mouse.vX = this.mouse.x - this.mouse.prevX;
 			this.mouse.vY = this.mouse.y - this.mouse.prevY;
 		});
+
+		// this.container.addEventListener("click", () => {
+		// 	gsap.to(this.controls.target, { x: -0.4, y: 0, z: 0, duration: 1.6, ease: "power3.out" });
+		// 	gsap.to(this.camera.position, { x: 2.5, y: 0.5, z: 2.5, duration: 1.6, ease: "power3.out" });
+		// });
 	}
 
 	setupResize() {
@@ -151,26 +170,37 @@ export default class Sketch {
 		this.width = this.container.offsetWidth;
 		this.height = this.container.offsetHeight;
 		this.renderer.setSize(this.width, this.height);
+		this.composer.setSize(this.width, this.height);
 		this.camera.aspect = this.width / this.height;
-
-		// image cover
-		// this.imageAspect = 2400 / 1920;
-		// let a1;
-		// let a2;
-		// if (this.height / this.width > this.imageAspect) {
-		// 	a1 = (this.width / this.height) * this.imageAspect;
-		// 	a2 = 1;
-		// } else {
-		// 	a1 = 1;
-		// 	a2 = this.height / this.width / this.imageAspect;
-		// }
-
-		// this.material.uniforms.resolution.value.x = this.width;
-		// this.material.uniforms.resolution.value.y = this.height;
-		// this.material.uniforms.resolution.value.z = a1;
-		// this.material.uniforms.resolution.value.w = a2;
-
 		this.camera.updateProjectionMatrix();
+	}
+
+	initComposer() {
+		this.bloomParams = {
+			threshold: 0,
+			strength: 0.286,
+			radius: 0,
+			exposure: 1,
+		};
+		const renderScene = new RenderPass(this.scene, this.camera);
+
+		this.bloomPass = new UnrealBloomPass(new Vector2(this.width, this.height), 0, 0.2, 0);
+		this.bloomPass.threshold = this.bloomParams.threshold;
+		this.bloomPass.strength = this.bloomParams.strength;
+		this.bloomPass.radius = this.bloomParams.radius;
+
+		const outputPass = new OutputPass();
+		this.lutPass = new LUTPass();
+
+		this.composer = new EffectComposer(this.renderer);
+		this.composer.addPass(renderScene);
+		this.composer.addPass(this.bloomPass);
+		this.composer.addPass(outputPass);
+		this.composer.addPass(this.lutPass);
+
+		new LUT3dlLoader().load("/luts/Presetpro-Cinematic.3dl", (lut) => {
+			this.lut = lut;
+		});
 	}
 
 	addLights() {
@@ -179,22 +209,6 @@ export default class Sketch {
 		light.rotation.set(Math.PI / 2, Math.PI, 0);
 		light.position.set(0, 3, 0);
 		this.scene.add(light);
-
-		// light = new RectAreaLight("#ffffff", 0, 1, 2);
-		// light.power = 20;
-		// light.rotation.set(Math.PI / 2, Math.PI - 1, 0);
-		// light.position.set(10, 8, 0);
-		// this.scene.add(light);
-
-		// light = new RectAreaLight("#ffffff", 0, 1, 2);
-		// light.power = 20;
-		// light.rotation.set(Math.PI / 2, Math.PI + 1, 0);
-		// light.position.set(-10, 8, 0);
-		// this.scene.add(light);
-
-		this.scene.add(new AmbientLight("#ffffff", 1.5));
-
-		// this.scene.add(new RectAreaLightHelper(light));
 	}
 
 	addMaterials() {
@@ -202,7 +216,7 @@ export default class Sketch {
 			color: this.carProps.Body,
 			metalness: 0.8,
 			roughness: 0.3,
-			clearcoat: 0.5,
+			clearcoat: 1,
 			clearcoatRoughness: 0.1,
 		});
 
@@ -267,22 +281,14 @@ export default class Sketch {
 				}
 			});
 			const studio = gltf.scene;
-			console.log(studio);
-			const carBody = studio.getObjectByName("Body");
-			this.doors.push(studio.getObjectByName("Door_Left"), studio.getObjectByName("Door_Right"));
+			const carBody = studio.getObjectByName("Body").children[0];
 			carBody.material = this.bodyMaterial;
-			this.doors[0].material = this.bodyMaterial;
-			this.doors[1].material = this.bodyMaterial;
-			this.bumpers.push(studio.getObjectByName("Bumper"), studio.getObjectByName("Rear_Bumper"));
-			this.bumpers[0].material = this.bodyMaterial;
-			this.bumpers[1].material = this.bodyMaterial;
 
 			const wing = studio.getObjectByName("Spoiler");
 			wing.material = this.wingMaterial;
 
-			this.diffusers.push(studio.getObjectByName("Diffuser"), studio.getObjectByName("Front_Diffuser"));
-			this.diffusers[0].material = this.diffuserMaterial;
-			this.diffusers[1].material = this.diffuserMaterial;
+			const diffusers = studio.getObjectByName("Diffusers");
+			diffusers.material = this.diffuserMaterial;
 
 			this.wheels.push(
 				studio.getObjectByName("Spyder-wheelFtL"),
@@ -306,14 +312,8 @@ export default class Sketch {
 			this.brakes[2].material = this.brakeMaterial;
 			this.brakes[3].material = this.brakeMaterial;
 
-			this.glasses.push(
-				studio.getObjectByName("Glass_Left"),
-				studio.getObjectByName("Glass_Right"),
-				studio.getObjectByName("Windshield")
-			);
-			this.glasses[0].material = this.glassMaterial;
-			this.glasses[1].material = this.glassMaterial;
-			this.glasses[2].material = this.glassMaterial;
+			const glasses = studio.getObjectByName("Glasses");
+			glasses.material = this.glassMaterial;
 
 			this.scene.add(studio);
 		});
@@ -344,6 +344,16 @@ export default class Sketch {
 			this.glassMaterial.color.set(newColor);
 			this.glassMaterial.needsUpdate = true;
 		});
+
+		// const controlsFolder = this.gui.addFolder("Controls");
+		// controlsFolder.add(this.controls.target, "x", -10, 10, 0.5);
+		// controlsFolder.add(this.controls.target, "y", -10, 10, 0.5);
+		// controlsFolder.add(this.controls.target, "z", -10, 10, 0.5);
+
+		// const cameraFolder = this.gui.addFolder("Camera");
+		// cameraFolder.add(this.camera.position, "x", -10, 10, 0.5);
+		// cameraFolder.add(this.camera.position, "y", -10, 10, 0.5);
+		// cameraFolder.add(this.camera.position, "z", -10, 10, 0.5);
 	}
 
 	render() {
@@ -351,7 +361,9 @@ export default class Sketch {
 		this.time += 0.05;
 		// this.material.uniforms.time.value = this.time;
 		requestAnimationFrame(this.render.bind(this));
-		this.renderer.render(this.scene, this.camera);
+		// this.renderer.render(this.scene, this.camera);
+		if (this.lut) this.lutPass.lut = this.lut.texture3D;
+		this.composer.render();
 		this.controls.update();
 	}
 }
