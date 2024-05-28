@@ -1,60 +1,40 @@
 import {
+	CSS2DObject,
+	CSS2DRenderer,
 	DRACOLoader,
 	EffectComposer,
 	GLTFLoader,
+	LUT3dlLoader,
+	LUTPass,
 	OrbitControls,
 	OutputPass,
 	RGBELoader,
-	RectAreaLightHelper,
-	RenderPass,
 	RectAreaLightUniformsLib,
+	RenderPass,
 	UnrealBloomPass,
-	LUT3dlLoader,
-	LUTPass,
-	CSS2DObject,
-	CSS2DRenderer,
 } from "three/examples/jsm/Addons.js";
 import "../style.css";
 
+import gsap from "gsap";
 import {
 	ACESFilmicToneMapping,
-	AmbientLight,
-	AxesHelper,
-	CineonToneMapping,
-	Color,
-	DirectionalLight,
-	DoubleSide,
 	EquirectangularReflectionMapping,
-	Fog,
 	MathUtils,
-	Mesh,
-	MeshBasicMaterial,
 	MeshPhysicalMaterial,
 	MeshStandardMaterial,
-	NoToneMapping,
-	OrthographicCamera,
 	PerspectiveCamera,
-	PlaneGeometry,
+	Raycaster,
 	RectAreaLight,
-	RepeatWrapping,
 	SRGBColorSpace,
 	Scene,
-	ShaderMaterial,
-	Skeleton,
-	SkinnedMesh,
-	SpotLight,
-	SpotLightHelper,
 	Sprite,
 	SpriteMaterial,
 	TextureLoader,
 	Vector2,
 	Vector3,
-	Vector4,
 	WebGLRenderer,
 } from "three";
 import GUI from "three/examples/jsm/libs/lil-gui.module.min.js";
-import { LoadingManager } from "three";
-import gsap from "gsap";
 
 export default class Sketch {
 	constructor(options) {
@@ -116,43 +96,64 @@ export default class Sketch {
 		this.gltfLoader = new GLTFLoader();
 		this.gltfLoader.setDRACOLoader(dracoLoader);
 
+		this.raycaster = new Raycaster();
+		this.mouse = new Vector2();
+
 		this.time = 0;
-		this.mouse = {
-			x: 0,
-			y: 0,
-			prevX: 0,
-			prevY: 0,
-			vX: 0,
-			vY: 0,
-		};
+
 		this.carProps = {
 			Body: "#262626",
 			Wheels: "#ffffff",
-			Wing: "#262626",
+			Spoiler: "#262626",
 			Diffusers: "#262626",
 			Brakes: "#A1FF00",
 			Glass: "#ffffff",
 		};
 		this.wheels = [];
 		this.materials = [];
-		this.doors = [];
-		this.bumpers = [];
 		this.diffusers = [];
 		this.brakes = [];
 		this.glasses = [];
-		this.mirrors = [];
-		this.settingsBtn = document.getElementById("settingsBtn");
 
 		this.annotations = [
-			{ title: "Body", position: new Vector3(-3.5, 6, 6), target: new Vector3(0, 1, 0) },
-			{ title: "Wheels", position: new Vector3(2.6, 0.8, 2.6), target: new Vector3(1.05, 0.7, 1.5) },
-			{ title: "Windshield", position: new Vector3(0, 1.1, 2), target: new Vector3(0, 0.9, 1) },
-			{ title: "Spoiler", position: new Vector3(0, 2, -4), target: new Vector3(0, 0.9, -2.2) },
-			{ title: "Interior", position: new Vector3(0, 0.9, -0.1), target: new Vector3(0, 0.75, 0.3) },
+			{
+				title: "Body",
+				position: new Vector3(-3.5, 6, 6),
+				target: new Vector3(0, 1, 0),
+			},
+			{
+				title: "Wheels",
+				position: new Vector3(2.6, 0.8, 2.6),
+				target: new Vector3(1.05, 0.7, 1.5),
+			},
+			{
+				title: "Glass",
+				position: new Vector3(0, 1.1, 2),
+				target: new Vector3(0, 0.9, 1),
+			},
+			{
+				title: "Spoiler",
+				position: new Vector3(0, 2, -4),
+				target: new Vector3(0, 0.9, -2.2),
+			},
+			{
+				title: "Interior",
+				position: new Vector3(0, 0.9, -0.1),
+				target: new Vector3(0, 0.75, 0.3),
+			},
+			{
+				title: "Brakes",
+				position: new Vector3(-2.6, 0.8, 1.3),
+				target: new Vector3(-1, 0.35, 1.45),
+			},
 		];
 		this.annotationMarkers = [];
 		this.isAnnotationActive = false;
+
 		this.annotationsPanel = document.getElementById("annotationsPanel");
+		this.settingsBtn = document.getElementById("settingsBtn");
+		this.colorPickers = {};
+		document.querySelectorAll(".color-picker").forEach((el) => (this.colorPickers[el.id] = el));
 
 		this.isPlaying = true;
 		this.addMaterials();
@@ -163,34 +164,30 @@ export default class Sketch {
 		this.render();
 		this.setupResize();
 		this.addAnnotations();
-		// this.addGUI();
+		this.addGUI();
 
 		this.mouseEvents();
 	}
 
 	mouseEvents() {
-		window.addEventListener("mousemove", (e) => {
-			this.mouse.prevX = this.mouse.x;
-			this.mouse.prevY = this.mouse.y;
-			this.mouse.x = e.clientX - this.width / 2;
-			this.mouse.y = this.height / 2 - e.clientY;
-			this.mouse.vX = this.mouse.x - this.mouse.prevX;
-			this.mouse.vY = this.mouse.y - this.mouse.prevY;
+		window.addEventListener("pointermove", (e) => {
+			this.mouse.x = (e.clientX / this.width) * 2 - 1;
+			this.mouse.y = -(e.clientY / this.height) * 2 + 1;
 		});
 
-		this.settingsBtn.addEventListener("click", () => {
-			const isAnnotationsVisible = this.settingsBtn.getAttribute("data-view") === "close";
-			if (isAnnotationsVisible) {
-				this.hideAnnotations();
-			} else {
-				this.showAnnotations();
+		this.container.addEventListener("click", () => {
+			if (this.intersects.length > 0) {
+				const userData = this.intersects[0].object.userData;
+				this.gotoAnnotation(userData);
+				Object.keys(this.guis).forEach((gui) => this.guis[gui].hide());
+				if (userData.title !== "Interior") this.guis[userData.title].show();
 			}
 		});
 
-		// this.container.addEventListener("click", () => {
-		// 	gsap.to(this.controls.target, { x: -0.4, y: 0, z: 0, duration: 1.6, ease: "power3.out" });
-		// 	gsap.to(this.camera.position, { x: 2.5, y: 0.5, z: 2.5, duration: 1.6, ease: "power3.out" });
-		// });
+		this.container.addEventListener("dblclick", () => {
+			this.gotoAnnotation(this.initialCameraPos);
+			Object.keys(this.guis).forEach((gui) => this.guis[gui].hide());
+		});
 	}
 
 	setupResize() {
@@ -210,7 +207,7 @@ export default class Sketch {
 	initComposer() {
 		this.bloomParams = {
 			threshold: 0,
-			strength: 0.286,
+			strength: 0.2,
 			radius: 0,
 			exposure: 1,
 		};
@@ -261,8 +258,8 @@ export default class Sketch {
 			clearcoatRoughness: 0.1,
 		});
 
-		this.wingMaterial = new MeshStandardMaterial({
-			color: this.carProps.Wing,
+		this.spoilerMaterial = new MeshStandardMaterial({
+			color: this.carProps.Spoiler,
 			metalness: 0.5,
 			roughness: 0.1,
 			clearcoat: 0.2,
@@ -298,7 +295,7 @@ export default class Sketch {
 		this.materials.push(
 			this.bodyMaterial,
 			this.wheelMaterial,
-			this.wingMaterial,
+			this.spoilerMaterial,
 			this.diffuserMaterial,
 			this.brakeMaterial,
 			this.glassMaterial
@@ -317,8 +314,8 @@ export default class Sketch {
 			const carBody = studio.getObjectByName("Body").children[0];
 			carBody.material = this.bodyMaterial;
 
-			const wing = studio.getObjectByName("Spoiler");
-			wing.material = this.wingMaterial;
+			const spoiler = studio.getObjectByName("Spoiler");
+			spoiler.material = this.spoilerMaterial;
 
 			const diffusers = studio.getObjectByName("Diffusers");
 			diffusers.material = this.diffuserMaterial;
@@ -335,10 +332,10 @@ export default class Sketch {
 			this.wheels[3].material = this.wheelMaterial;
 
 			this.brakes.push(
-				studio.getObjectByName("Spyder-wheelbrakeFtL"),
-				studio.getObjectByName("Spyder-wheelbrakeFtR"),
-				studio.getObjectByName("Spyder-wheelbrakeBkL"),
-				studio.getObjectByName("Spyder-wheelbrakeBkR")
+				studio.getObjectByName("Spyder-wheelbrakeFtL").children[0],
+				studio.getObjectByName("Spyder-wheelbrakeFtR").children[0],
+				studio.getObjectByName("Spyder-wheelbrakeBkL").children[0],
+				studio.getObjectByName("Spyder-wheelbrakeBkR").children[0]
 			);
 			this.brakes[0].material = this.brakeMaterial;
 			this.brakes[1].material = this.brakeMaterial;
@@ -353,59 +350,52 @@ export default class Sketch {
 	}
 
 	addGUI() {
-		this.gui = new GUI();
-		this.gui.addColor(this.carProps, "Body").onChange((newColor) => {
+		this.bodyGUI = new GUI({ title: "Body" }).hide();
+		this.diffusersGUI = new GUI({ title: "Diffusers" }).hide();
+		this.wheelsGUI = new GUI({ title: "Wheels" }).hide();
+		this.spoilerGUI = new GUI({ title: "Spoiler" }).hide();
+		this.brakesGUI = new GUI({ title: "Brakes" }).hide();
+		this.glassGUI = new GUI({ title: "Glass" }).hide();
+
+		this.guis = {
+			Body: this.bodyGUI,
+			Diffusers: this.diffusersGUI,
+			Wheels: this.wheelsGUI,
+			Spoiler: this.spoilerGUI,
+			Brakes: this.brakesGUI,
+			Glass: this.glassGUI,
+		};
+
+		this.bodyGUI.addColor(this.carProps, "Body").onChange((newColor) => {
 			this.bodyMaterial.color.set(newColor);
 			this.bodyMaterial.needsUpdate = true;
 		});
-		this.gui.addColor(this.carProps, "Diffusers").onChange((newColor) => {
+		this.diffusersGUI.addColor(this.carProps, "Diffusers").onChange((newColor) => {
 			this.diffuserMaterial.color.set(newColor);
 			this.diffuserMaterial.needsUpdate = true;
 		});
-		this.gui.addColor(this.carProps, "Wheels").onChange((newColor) => {
+		this.wheelsGUI.addColor(this.carProps, "Wheels").onChange((newColor) => {
 			this.wheelMaterial.color.set(newColor);
 			this.wheelMaterial.needsUpdate = true;
 		});
-		this.gui.addColor(this.carProps, "Wing").onChange((newColor) => {
-			this.wingMaterial.color.set(newColor);
-			this.wingMaterial.needsUpdate = true;
+		this.spoilerGUI.addColor(this.carProps, "Spoiler").onChange((newColor) => {
+			this.spoilerMaterial.color.set(newColor);
+			this.spoilerMaterial.needsUpdate = true;
 		});
-		this.gui.addColor(this.carProps, "Brakes").onChange((newColor) => {
+		this.brakesGUI.addColor(this.carProps, "Brakes").onChange((newColor) => {
 			this.brakeMaterial.color.set(newColor);
 			this.brakeMaterial.needsUpdate = true;
 		});
-		this.gui.addColor(this.carProps, "Glass").onChange((newColor) => {
+		this.glassGUI.addColor(this.carProps, "Glass").onChange((newColor) => {
 			this.glassMaterial.color.set(newColor);
 			this.glassMaterial.needsUpdate = true;
 		});
-
-		// const controlsFolder = this.gui.addFolder("Controls");
-		// controlsFolder.add(this.controls.target, "x", -10, 10, 0.5);
-		// controlsFolder.add(this.controls.target, "y", -10, 10, 0.5);
-		// controlsFolder.add(this.controls.target, "z", -10, 10, 0.5);
-
-		// const cameraFolder = this.gui.addFolder("Camera");
-		// cameraFolder.add(this.camera.position, "x", -10, 10, 0.5);
-		// cameraFolder.add(this.camera.position, "y", -10, 10, 0.5);
-		// cameraFolder.add(this.camera.position, "z", -10, 10, 0.5);
 	}
 
 	addAnnotations() {
 		const circleTexture = new TextureLoader().load("/circle.png");
-		const ul = document.createElement("ul");
-		const ulElem = this.annotationsPanel.appendChild(ul);
 
 		Object.keys(this.annotations).forEach((idx) => {
-			const li = document.createElement("li");
-			const liElem = ulElem.appendChild(li);
-			const button = document.createElement("button");
-			button.innerHTML = this.annotations[idx].title;
-			button.className = "annotationButton";
-			button.addEventListener("click", () => {
-				this.gotoAnnotation(this.annotations[idx]);
-			});
-			liElem.appendChild(button);
-
 			const annotationSpriteMaterial = new SpriteMaterial({
 				map: circleTexture,
 				depthTest: false,
@@ -413,10 +403,9 @@ export default class Sketch {
 				sizeAttenuation: false,
 			});
 			const annotationSprite = new Sprite(annotationSpriteMaterial);
-			annotationSprite.scale.set(0.02, 0.02, 0.02);
+			annotationSprite.scale.set(0.04, 0.04, 0.04);
 			annotationSprite.position.copy(this.annotations[idx].target);
-			annotationSprite.userData.id = idx;
-			annotationSprite.visible = false;
+			annotationSprite.userData = { ...this.annotations[idx] };
 			annotationSprite.renderOrder = 1;
 			this.scene.add(annotationSprite);
 			this.annotationMarkers.push(annotationSprite);
@@ -435,14 +424,14 @@ export default class Sketch {
 			x: annotation.target.x,
 			y: annotation.target.y,
 			z: annotation.target.z,
-			duration: 3,
+			duration: 2,
 			ease: "power3.inOut",
 		});
 		gsap.to(this.camera.position, {
 			x: annotation.position.x,
 			y: annotation.position.y,
 			z: annotation.position.z,
-			duration: 3,
+			duration: 2,
 			ease: "power3.inOut",
 		});
 	}
@@ -452,39 +441,16 @@ export default class Sketch {
 		this.time += 0.05;
 		// this.material.uniforms.time.value = this.time;
 		requestAnimationFrame(this.render.bind(this));
-		this.renderer.render(this.scene, this.camera);
-		// if (this.lut) this.lutPass.lut = this.lut.texture3D;
-		// this.composer.render();
+		// update the picking ray with the camera and pointer position
+		this.raycaster.setFromCamera(this.mouse, this.camera);
+
+		// calculate objects intersecting the picking ray
+		this.intersects = this.raycaster.intersectObjects(this.annotationMarkers);
+
+		// this.renderer.render(this.scene, this.camera);
+		this.composer.render();
 		this.labelRenderer.render(this.scene, this.camera);
 		this.controls.update();
-	}
-
-	showAnnotations() {
-		this.settingsBtn.setAttribute("data-view", "close");
-		this.annotationsPanel.style.display = "block";
-		this.annotationMarkers.forEach((marker) => (marker.visible = true));
-		this.labelCanvas.style.display = "block";
-	}
-
-	hideAnnotations() {
-		this.settingsBtn.setAttribute("data-view", "settings");
-		this.annotationsPanel.style.display = "none";
-		this.labelCanvas.style.display = "none";
-		this.annotationMarkers.forEach((marker) => (marker.visible = false));
-		gsap.to(this.controls.target, {
-			x: this.initialCameraPos.target.x,
-			y: this.initialCameraPos.target.y,
-			z: this.initialCameraPos.target.z,
-			duration: 3,
-			ease: "power3.inOut",
-		});
-		gsap.to(this.camera.position, {
-			x: this.initialCameraPos.position.x,
-			y: this.initialCameraPos.position.y,
-			z: this.initialCameraPos.position.z,
-			duration: 3,
-			ease: "power3.inOut",
-		});
 	}
 }
 

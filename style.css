@@ -47,15 +47,6 @@ canvas {
 	z-index: 1;
 }
 
-#annotationsPanel {
-	position: absolute;
-	z-index: 2;
-	display: none;
-}
-#annotationsPanel button {
-	cursor: pointer;
-}
-
 .annotationLabel {
 	cursor: pointer;
 	z-index: 3 !important;
@@ -65,48 +56,4 @@ canvas {
 	position: absolute;
 	top: 0;
 	left: 0;
-	display: none;
-}
-
-#settingsBtn {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	width: 60px;
-	height: 60px;
-	background-color: #ffffff;
-	border-radius: 50%;
-	box-shadow: 0 30px 40px rgba(0, 0, 0, 0.15);
-	position: fixed;
-	bottom: 30px;
-	right: 30px;
-	z-index: 100;
-	transition: 0.25s ease-out;
-	cursor: pointer;
-}
-
-#settingsBtn svg {
-	width: 24px;
-	height: 24px;
-	color: #242424;
-	position: absolute;
-	top: 50%;
-	left: 50%;
-	transform: translate(-50%, -50%);
-}
-
-#settingsBtn[data-view="close"] .feather-x {
-	display: block;
-}
-
-#settingsBtn[data-view="close"] .feather-tool {
-	display: none;
-}
-
-#settingsBtn[data-view="settings"] .feather-x {
-	display: none;
-}
-
-#settingsBtn[data-view="settings"] .feather-tool {
-	display: block;
 }
