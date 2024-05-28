@@ -11,6 +11,8 @@ import {
 	UnrealBloomPass,
 	LUT3dlLoader,
 	LUTPass,
+	CSS2DObject,
+	CSS2DRenderer,
 } from "three/examples/jsm/Addons.js";
 import "../style.css";
 
@@ -42,8 +44,11 @@ import {
 	SkinnedMesh,
 	SpotLight,
 	SpotLightHelper,
+	Sprite,
+	SpriteMaterial,
 	TextureLoader,
 	Vector2,
+	Vector3,
 	Vector4,
 	WebGLRenderer,
 } from "three";
@@ -69,7 +74,7 @@ export default class Sketch {
 		this.container = options.dom;
 		this.width = this.container.offsetWidth;
 		this.height = this.container.offsetHeight;
-		this.renderer = new WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+		this.renderer = new WebGLRenderer({ antialias: true });
 		this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 		this.renderer.setSize(this.width, this.height);
 		this.renderer.setClearColor(0xffffff, 1);
@@ -90,21 +95,26 @@ export default class Sketch {
 		// 	-1000,
 		// 	1000
 		// );
-		this.camera.position.set(4, 3, 5);
+		this.initialCameraPos = { position: new Vector3(3.5, 2.5, 4.5), target: new Vector3(0, 0, 0) };
+		this.camera.position.copy(this.initialCameraPos.position);
 
 		this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-		this.controls.maxPolarAngle = MathUtils.degToRad(85);
+		this.controls.maxPolarAngle = MathUtils.degToRad(89);
 		this.controls.enableDamping = true;
 		this.controls.dampingFactor = 0.1;
 		this.controls.enableZoom = false;
+
+		this.labelRenderer = new CSS2DRenderer();
+		this.labelRenderer.setSize(this.width, this.height);
+		this.labelCanvas = this.labelRenderer.domElement;
+		this.labelRenderer.domElement.id = "annotationsCanvas";
+		this.container.appendChild(this.labelRenderer.domElement);
 
 		const dracoLoader = new DRACOLoader();
 		dracoLoader.setDecoderPath("jsm/libs/draco/gltf/");
 
 		this.gltfLoader = new GLTFLoader();
 		this.gltfLoader.setDRACOLoader(dracoLoader);
-
-		this.gui = new GUI();
 
 		this.time = 0;
 		this.mouse = {
@@ -131,7 +141,18 @@ export default class Sketch {
 		this.brakes = [];
 		this.glasses = [];
 		this.mirrors = [];
-		this.wing = null;
+		this.settingsBtn = document.getElementById("settingsBtn");
+
+		this.annotations = [
+			{ title: "Body", position: new Vector3(-3.5, 6, 6), target: new Vector3(0, 1, 0) },
+			{ title: "Wheels", position: new Vector3(2.6, 0.8, 2.6), target: new Vector3(1.05, 0.7, 1.5) },
+			{ title: "Windshield", position: new Vector3(0, 1.1, 2), target: new Vector3(0, 0.9, 1) },
+			{ title: "Spoiler", position: new Vector3(0, 2, -4), target: new Vector3(0, 0.9, -2.2) },
+			{ title: "Interior", position: new Vector3(0, 0.9, -0.1), target: new Vector3(0, 0.75, 0.3) },
+		];
+		this.annotationMarkers = [];
+		this.isAnnotationActive = false;
+		this.annotationsPanel = document.getElementById("annotationsPanel");
 
 		this.isPlaying = true;
 		this.addMaterials();
@@ -141,7 +162,8 @@ export default class Sketch {
 		this.resize();
 		this.render();
 		this.setupResize();
-		this.addGUI();
+		this.addAnnotations();
+		// this.addGUI();
 
 		this.mouseEvents();
 	}
@@ -154,6 +176,15 @@ export default class Sketch {
 			this.mouse.y = this.height / 2 - e.clientY;
 			this.mouse.vX = this.mouse.x - this.mouse.prevX;
 			this.mouse.vY = this.mouse.y - this.mouse.prevY;
+		});
+
+		this.settingsBtn.addEventListener("click", () => {
+			const isAnnotationsVisible = this.settingsBtn.getAttribute("data-view") === "close";
+			if (isAnnotationsVisible) {
+				this.hideAnnotations();
+			} else {
+				this.showAnnotations();
+			}
 		});
 
 		// this.container.addEventListener("click", () => {
@@ -171,6 +202,7 @@ export default class Sketch {
 		this.height = this.container.offsetHeight;
 		this.renderer.setSize(this.width, this.height);
 		this.composer.setSize(this.width, this.height);
+		this.labelRenderer.setSize(this.width, this.height);
 		this.camera.aspect = this.width / this.height;
 		this.camera.updateProjectionMatrix();
 	}
@@ -200,12 +232,13 @@ export default class Sketch {
 
 		new LUT3dlLoader().load("/luts/Presetpro-Cinematic.3dl", (lut) => {
 			this.lut = lut;
+			this.lutPass.lut = this.lut.texture3D;
 		});
 	}
 
 	addLights() {
 		RectAreaLightUniformsLib.init();
-		let light = new RectAreaLight("#ffffff", 1.5, 3, 6);
+		let light = new RectAreaLight("#ffffff", 2, 4, 8);
 		light.rotation.set(Math.PI / 2, Math.PI, 0);
 		light.position.set(0, 3, 0);
 		this.scene.add(light);
@@ -222,7 +255,7 @@ export default class Sketch {
 
 		this.wheelMaterial = new MeshPhysicalMaterial({
 			color: this.carProps.Wheels,
-			metalness: 0.8,
+			metalness: 1,
 			roughness: 0.3,
 			clearcoat: 0.5,
 			clearcoatRoughness: 0.1,
@@ -320,6 +353,7 @@ export default class Sketch {
 	}
 
 	addGUI() {
+		this.gui = new GUI();
 		this.gui.addColor(this.carProps, "Body").onChange((newColor) => {
 			this.bodyMaterial.color.set(newColor);
 			this.bodyMaterial.needsUpdate = true;
@@ -356,15 +390,101 @@ export default class Sketch {
 		// cameraFolder.add(this.camera.position, "z", -10, 10, 0.5);
 	}
 
+	addAnnotations() {
+		const circleTexture = new TextureLoader().load("/circle.png");
+		const ul = document.createElement("ul");
+		const ulElem = this.annotationsPanel.appendChild(ul);
+
+		Object.keys(this.annotations).forEach((idx) => {
+			const li = document.createElement("li");
+			const liElem = ulElem.appendChild(li);
+			const button = document.createElement("button");
+			button.innerHTML = this.annotations[idx].title;
+			button.className = "annotationButton";
+			button.addEventListener("click", () => {
+				this.gotoAnnotation(this.annotations[idx]);
+			});
+			liElem.appendChild(button);
+
+			const annotationSpriteMaterial = new SpriteMaterial({
+				map: circleTexture,
+				depthTest: false,
+				depthWrite: false,
+				sizeAttenuation: false,
+			});
+			const annotationSprite = new Sprite(annotationSpriteMaterial);
+			annotationSprite.scale.set(0.02, 0.02, 0.02);
+			annotationSprite.position.copy(this.annotations[idx].target);
+			annotationSprite.userData.id = idx;
+			annotationSprite.visible = false;
+			annotationSprite.renderOrder = 1;
+			this.scene.add(annotationSprite);
+			this.annotationMarkers.push(annotationSprite);
+
+			const annotationDiv = document.createElement("div");
+			annotationDiv.className = "annotationLabel";
+			annotationDiv.innerHTML = Number(idx) + 1;
+			const annotationLabel = new CSS2DObject(annotationDiv);
+			annotationLabel.position.copy(this.annotations[idx].target);
+			this.scene.add(annotationLabel);
+		});
+	}
+
+	gotoAnnotation(annotation) {
+		gsap.to(this.controls.target, {
+			x: annotation.target.x,
+			y: annotation.target.y,
+			z: annotation.target.z,
+			duration: 3,
+			ease: "power3.inOut",
+		});
+		gsap.to(this.camera.position, {
+			x: annotation.position.x,
+			y: annotation.position.y,
+			z: annotation.position.z,
+			duration: 3,
+			ease: "power3.inOut",
+		});
+	}
+
 	render() {
 		if (!this.isPlaying) return;
 		this.time += 0.05;
 		// this.material.uniforms.time.value = this.time;
 		requestAnimationFrame(this.render.bind(this));
-		// this.renderer.render(this.scene, this.camera);
-		if (this.lut) this.lutPass.lut = this.lut.texture3D;
-		this.composer.render();
+		this.renderer.render(this.scene, this.camera);
+		// if (this.lut) this.lutPass.lut = this.lut.texture3D;
+		// this.composer.render();
+		this.labelRenderer.render(this.scene, this.camera);
 		this.controls.update();
+	}
+
+	showAnnotations() {
+		this.settingsBtn.setAttribute("data-view", "close");
+		this.annotationsPanel.style.display = "block";
+		this.annotationMarkers.forEach((marker) => (marker.visible = true));
+		this.labelCanvas.style.display = "block";
+	}
+
+	hideAnnotations() {
+		this.settingsBtn.setAttribute("data-view", "settings");
+		this.annotationsPanel.style.display = "none";
+		this.labelCanvas.style.display = "none";
+		this.annotationMarkers.forEach((marker) => (marker.visible = false));
+		gsap.to(this.controls.target, {
+			x: this.initialCameraPos.target.x,
+			y: this.initialCameraPos.target.y,
+			z: this.initialCameraPos.target.z,
+			duration: 3,
+			ease: "power3.inOut",
+		});
+		gsap.to(this.camera.position, {
+			x: this.initialCameraPos.position.x,
+			y: this.initialCameraPos.position.y,
+			z: this.initialCameraPos.position.z,
+			duration: 3,
+			ease: "power3.inOut",
+		});
 	}
 }
 
