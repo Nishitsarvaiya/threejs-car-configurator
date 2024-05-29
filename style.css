@@ -50,10 +50,41 @@ canvas {
 .annotationLabel {
 	cursor: pointer;
 	z-index: 3 !important;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 40px;
+	height: 40px;
 }
 
 #annotationsCanvas {
 	position: absolute;
 	top: 0;
 	left: 0;
+}
+
+#resetBtn {
+	width: 60px;
+	height: 60px;
+	background-color: #f2f2f2;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 50%;
+	box-shadow: 0 30px 40px rgba(0, 0, 0, 0.15);
+	position: absolute;
+	right: 20px;
+	bottom: 20px;
+	z-index: 5;
+	transition: 250ms ease;
+	color: #242424;
+	cursor: pointer;
+}
+
+#resetBtn[data-show="false"] {
+	transform: scale(0);
+}
+
+#resetBtn[data-show="true"] {
+	transform: scale(1);
 }

@@ -1,8 +1,10 @@
 import {
+	BokehPass,
 	CSS2DObject,
 	CSS2DRenderer,
 	DRACOLoader,
 	EffectComposer,
+	FXAAShader,
 	GLTFLoader,
 	LUT3dlLoader,
 	LUTPass,
@@ -11,6 +13,7 @@ import {
 	RGBELoader,
 	RectAreaLightUniformsLib,
 	RenderPass,
+	ShaderPass,
 	UnrealBloomPass,
 } from "three/examples/jsm/Addons.js";
 import "../style.css";
@@ -19,6 +22,7 @@ import gsap from "gsap";
 import {
 	ACESFilmicToneMapping,
 	EquirectangularReflectionMapping,
+	LoadingManager,
 	MathUtils,
 	MeshPhysicalMaterial,
 	MeshStandardMaterial,
@@ -84,6 +88,8 @@ export default class Sketch {
 		this.controls.dampingFactor = 0.1;
 		this.controls.enableZoom = false;
 
+		this.loadingManager = new LoadingManager();
+
 		this.labelRenderer = new CSS2DRenderer();
 		this.labelRenderer.setSize(this.width, this.height);
 		this.labelCanvas = this.labelRenderer.domElement;
@@ -95,9 +101,6 @@ export default class Sketch {
 
 		this.gltfLoader = new GLTFLoader();
 		this.gltfLoader.setDRACOLoader(dracoLoader);
-
-		this.raycaster = new Raycaster();
-		this.mouse = new Vector2();
 
 		this.time = 0;
 
@@ -149,11 +152,8 @@ export default class Sketch {
 		];
 		this.annotationMarkers = [];
 		this.isAnnotationActive = false;
-
-		this.annotationsPanel = document.getElementById("annotationsPanel");
-		this.settingsBtn = document.getElementById("settingsBtn");
-		this.colorPickers = {};
-		document.querySelectorAll(".color-picker").forEach((el) => (this.colorPickers[el.id] = el));
+		this.annotationDivs = [];
+		this.settingsBtn = document.getElementById("resetBtn");
 
 		this.isPlaying = true;
 		this.addMaterials();
@@ -163,34 +163,35 @@ export default class Sketch {
 		this.resize();
 		this.render();
 		this.setupResize();
-		this.addAnnotations();
 		this.addGUI();
-
+		this.addAnnotations();
 		this.mouseEvents();
 	}
 
 	mouseEvents() {
-		window.addEventListener("pointermove", (e) => {
-			this.mouse.x = (e.clientX / this.width) * 2 - 1;
-			this.mouse.y = -(e.clientY / this.height) * 2 + 1;
-		});
-
-		this.container.addEventListener("click", () => {
-			if (this.intersects.length > 0) {
-				const userData = this.intersects[0].object.userData;
-				this.gotoAnnotation(userData);
+		this.annotationDivs.forEach((label) => {
+			label.addEventListener("click", () => {
+				this.settingsBtn.setAttribute("data-show", true);
+				const id = label.innerHTML;
+				const annotation = this.annotations[id - 1];
+				this.gotoAnnotation(annotation);
 				Object.keys(this.guis).forEach((gui) => this.guis[gui].hide());
-				if (userData.title !== "Interior") this.guis[userData.title].show();
-			}
+				if (annotation.title !== "Interior") this.guis[annotation.title].show();
+			});
 		});
 
-		this.container.addEventListener("dblclick", () => {
+		this.settingsBtn.addEventListener("click", () => {
+			this.settingsBtn.setAttribute("data-show", false);
 			this.gotoAnnotation(this.initialCameraPos);
 			Object.keys(this.guis).forEach((gui) => this.guis[gui].hide());
 		});
 	}
 
 	setupResize() {
+		if (this.width < 992) {
+			this.initialCameraPos.position.set(3.5, 5, 10);
+			this.camera.position.copy(this.initialCameraPos.position);
+		}
 		window.addEventListener("resize", this.resize.bind(this));
 	}
 
@@ -202,6 +203,16 @@ export default class Sketch {
 		this.labelRenderer.setSize(this.width, this.height);
 		this.camera.aspect = this.width / this.height;
 		this.camera.updateProjectionMatrix();
+		const pixelRatio = this.renderer.getPixelRatio();
+		this.fxaaPass.material.uniforms["resolution"].value.x = 1 / (this.width * pixelRatio);
+		this.fxaaPass.material.uniforms["resolution"].value.y = 1 / (this.height * pixelRatio);
+		if (this.width < 992) {
+			this.initialCameraPos.position.set(3.5, 5, 10);
+			this.camera.position.copy(this.initialCameraPos.position);
+		} else {
+			this.initialCameraPos.position.set(3.5, 2.5, 4.5);
+			this.camera.position.copy(this.initialCameraPos.position);
+		}
 	}
 
 	initComposer() {
@@ -221,11 +232,17 @@ export default class Sketch {
 		const outputPass = new OutputPass();
 		this.lutPass = new LUTPass();
 
+		this.fxaaPass = new ShaderPass(FXAAShader);
+		const pixelRatio = this.renderer.getPixelRatio();
+		this.fxaaPass.material.uniforms["resolution"].value.x = 1 / (this.width * pixelRatio);
+		this.fxaaPass.material.uniforms["resolution"].value.y = 1 / (this.height * pixelRatio);
+
 		this.composer = new EffectComposer(this.renderer);
 		this.composer.addPass(renderScene);
 		this.composer.addPass(this.bloomPass);
 		this.composer.addPass(outputPass);
 		this.composer.addPass(this.lutPass);
+		this.composer.addPass(this.fxaaPass);
 
 		new LUT3dlLoader().load("/luts/Presetpro-Cinematic.3dl", (lut) => {
 			this.lut = lut;
@@ -413,6 +430,7 @@ export default class Sketch {
 			const annotationDiv = document.createElement("div");
 			annotationDiv.className = "annotationLabel";
 			annotationDiv.innerHTML = Number(idx) + 1;
+			this.annotationDivs.push(annotationDiv);
 			const annotationLabel = new CSS2DObject(annotationDiv);
 			annotationLabel.position.copy(this.annotations[idx].target);
 			this.scene.add(annotationLabel);
@@ -441,12 +459,6 @@ export default class Sketch {
 		this.time += 0.05;
 		// this.material.uniforms.time.value = this.time;
 		requestAnimationFrame(this.render.bind(this));
-		// update the picking ray with the camera and pointer position
-		this.raycaster.setFromCamera(this.mouse, this.camera);
-
-		// calculate objects intersecting the picking ray
-		this.intersects = this.raycaster.intersectObjects(this.annotationMarkers);
-
 		// this.renderer.render(this.scene, this.camera);
 		this.composer.render();
 		this.labelRenderer.render(this.scene, this.camera);
