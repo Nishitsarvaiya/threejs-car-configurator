@@ -42,13 +42,17 @@ import GUI from "three/examples/jsm/libs/lil-gui.module.min.js";
 
 export default class Sketch {
 	constructor(options) {
+		document.documentElement.style.pointerEvents = "none";
+		this.loadingManager = new LoadingManager();
+		this.progressDiv = document.querySelector(".progress");
+		this.loadingScreen = document.querySelector(".loading-screen");
 		this.scene = new Scene();
 		// this.scene.background = new Color(0xffffff);
 		// this.scene.environment = new RGBELoader().load("/textures/lonely_road_afternoon_puresky_1k.hdr");
 		// this.scene.environment = new RGBELoader().load("/textures/meadow_2_1k.hdr");
 		// this.scene.environment = new RGBELoader().load("/textures/thatch_chapel_2k.hdr");
 		// this.scene.environment = new RGBELoader().load("/textures/venice_sunset_2k.hdr");
-		this.hdri = new RGBELoader().load("/textures/poly_haven_studio_4k.hdr", (data) => {
+		this.hdri = new RGBELoader(this.loadingManager).load("/textures/poly_haven_studio_4k.hdr", (data) => {
 			this.scene.environment = data;
 			this.scene.environmentIntensity = 0.1;
 			this.scene.environment.mapping = EquirectangularReflectionMapping;
@@ -88,18 +92,16 @@ export default class Sketch {
 		this.controls.dampingFactor = 0.1;
 		this.controls.enableZoom = false;
 
-		this.loadingManager = new LoadingManager();
-
 		this.labelRenderer = new CSS2DRenderer();
 		this.labelRenderer.setSize(this.width, this.height);
 		this.labelCanvas = this.labelRenderer.domElement;
 		this.labelRenderer.domElement.id = "annotationsCanvas";
 		this.container.appendChild(this.labelRenderer.domElement);
 
-		const dracoLoader = new DRACOLoader();
+		const dracoLoader = new DRACOLoader(this.loadingManager);
 		dracoLoader.setDecoderPath("jsm/libs/draco/gltf/");
 
-		this.gltfLoader = new GLTFLoader();
+		this.gltfLoader = new GLTFLoader(this.loadingManager);
 		this.gltfLoader.setDRACOLoader(dracoLoader);
 
 		this.time = 0;
@@ -166,6 +168,9 @@ export default class Sketch {
 		this.addGUI();
 		this.addAnnotations();
 		this.mouseEvents();
+
+		this.loadingManager.onLoad = () => this.onAssetsLoad();
+		this.loadingManager.onProgress = (url, loaded, total) => this.onAssetsProgress(url, loaded, total);
 	}
 
 	mouseEvents() {
@@ -244,7 +249,7 @@ export default class Sketch {
 		this.composer.addPass(this.lutPass);
 		this.composer.addPass(this.fxaaPass);
 
-		new LUT3dlLoader().load("/luts/Presetpro-Cinematic.3dl", (lut) => {
+		new LUT3dlLoader(this.loadingManager).load("/luts/Presetpro-Cinematic.3dl", (lut) => {
 			this.lut = lut;
 			this.lutPass.lut = this.lut.texture3D;
 		});
@@ -463,6 +468,38 @@ export default class Sketch {
 		this.composer.render();
 		this.labelRenderer.render(this.scene, this.camera);
 		this.controls.update();
+	}
+
+	onAssetsLoad() {
+		gsap.to(this.progressDiv, { yPercent: -100, duration: 2, delay: 1, ease: "expo.inOut" });
+		gsap.to(this.loadingScreen, { clipPath: "inset(0% 0% 100% 0%)", duration: 2, delay: 1, ease: "expo.inOut" });
+		gsap.fromTo(
+			this.camera.position,
+			{ x: -4, y: 10, z: 15 },
+			{
+				x: this.initialCameraPos.position.x,
+				y: this.initialCameraPos.position.y,
+				z: this.initialCameraPos.position.z,
+				duration: 5,
+				delay: 1,
+				ease: "power3.inOut",
+				onComplete: () => {
+					document.documentElement.style.pointerEvents = "all";
+				},
+			}
+		);
+	}
+
+	onAssetsProgress(url, loaded, total) {
+		const progress = (loaded / total) * 100;
+		let formattedProgress = progress.toFixed(2);
+
+		gsap.to(this.progressDiv, {
+			textContent: formattedProgress,
+			duration: 1,
+			snap: { textContent: 1 },
+			ease: "power3.out",
+		});
 	}
 }
 
